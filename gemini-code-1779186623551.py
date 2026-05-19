@@ -118,29 +118,29 @@ def main():
         st.info("Przetwarzanie pliku...")
         
         try:
-            # Wczytanie wszystkich arkuszy do pamięci
             all_sheets = pd.read_excel(uploaded_file, sheet_name=None, dtype=str)
             processed = {}
             
             for sheet_name, df in all_sheets.items():
                 
-                # --- NOWE ZMIANY ---
                 # 1. Zmiana nagłówka kolumny
                 if "Claim: Claim Number" in df.columns:
                     df.rename(columns={"Claim: Claim Number": "claim import id"}, inplace=True)
                 
-                # 2. Ustawienie statusu wewnętrznego dla każdego wiersza
-                df["internal status"] = "Awaiting own process"
-                # -------------------
+                # 2. Ustawienie statusu wewnętrznego (POPRAWKA WIELKOŚCI LITER)
+                # Standaryzujemy nazwę, jeśli jakimś trafem była napisana małymi literami
+                if "internal status" in df.columns:
+                    df.rename(columns={"internal status": "Internal Status"}, inplace=True)
+                
+                # Tworzy lub nadpisuje istniejącą kolumnę "Internal Status" w każdym wierszu
+                df["Internal Status"] = "Awaiting own process"
 
-                # Stara logika przypisywania (tylko jeśli jest kolumna DSV Country)
+                # Stara logika przypisywania (wymaga kolumny Claim amount EUR!)
                 if COL_COUNTRY in df.columns:
-                    # Utworzenie kolumn docelowych jeśli nie istnieją
                     for col in [COL_LEGACY, COL_TEAM, COL_ASSIGNED, COL_INITIAL]:
                         if col not in df.columns:
                             df[col] = ""
 
-                    # Przetwarzanie wierszy pod kątem logiki krajów
                     for idx, row in df.iterrows():
                         country = str(row.get(COL_COUNTRY, "")).strip()
                         if country not in ("France", "Netherlands", "Spain", "Portugal"):
@@ -150,20 +150,22 @@ def main():
                         for col, val in changes.items():
                             df.at[idx, col] = val
                 
+                # 3. Usunięcie zbędnych kolumn (wykonane NA SAMYM KOŃCU)
+                cols_to_remove = ["Claim amount EUR", "Total liability EUR"]
+                df.drop(columns=[c for c in cols_to_remove if c in df.columns], inplace=True, errors='ignore')
+                
                 processed[sheet_name] = df
 
-            # Zapis do pamięci (BytesIO) zamiast na dysk fizyczny
+            # Zapis do pamięci
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine="openpyxl") as writer:
                 for sheet_name, df in processed.items():
                     df.to_excel(writer, sheet_name=sheet_name, index=False)
             
-            # Przesunięcie wskaźnika pliku na początek
             output.seek(0)
-            
             st.success("✅ Plik został pomyślnie przetworzony!")
             
-            # Przycisk do pobrania przetworzonego pliku
+            # Przycisk do pobrania
             st.download_button(
                 label="📥 Pobierz przetworzony plik Excel",
                 data=output,
